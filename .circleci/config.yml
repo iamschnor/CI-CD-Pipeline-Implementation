@@ -1,175 +1,122 @@
-# CircleCI 2.1 configuration for the CI/CD Pipeline Implementation Challenge
-# This configuration automates testing, Docker image building, and deployment.
-# Refer to CircleCI documentation for more details: https://circleci.com/docs/2.1/configuration-reference/
-
-version: 2.1
+version: 2.1 # This must be the very first line, with no leading spaces
 
 # Define reusable executors (execution environments)
 # This promotes consistency and reusability across jobs.
 executors:
   # Executor for Node.js based jobs
   node-executor:
-    # Use the specified Node.js 18 version from package.json engines
-    # cimg/node is CircleCI's convenience image, optimized for Node.js projects
     docker:
       - image: cimg/node:18.17.0
-    # Resource class can be adjusted based on your project's performance needs (small, medium, large)
     resource_class: small
 
 # Define reusable commands (sequences of steps)
-# This helps reduce redundancy in job definitions.
 commands:
-  # Command to restore cached Node.js modules
   restore_npm_cache:
     steps:
       - restore_cache:
-          # Cache key uses a checksum of package-lock.json to invalidate cache when dependencies change
           keys:
             - v1-dependencies-{{ checksum "package-lock.json" }}
-            # Fallback cache key if the exact match is not found
             - v1-dependencies-
-  # Command to save Node.js modules to cache
   save_npm_cache:
     steps:
       - save_cache:
-          # Cache path for node_modules directory
           paths:
             - node_modules
-          # Cache key using package-lock.json checksum for versioning
-          key: v1-dependencies-{{ checksum "package-lock.json" }}
+          key: v1-dependencies-{{ checksum "package.lock.json" }}
 
 jobs:
-  # Job for building the application and running tests/linting
   build_and_test:
-    executor: node-executor # Use the defined Node.js executor
+    executor: node-executor
     steps:
-      - checkout # Step to clone the GitHub repository
-
-      - restore_npm_cache # Restore node_modules from cache if available
-
+      - checkout
+      - restore_npm_cache
       - run:
-          name: Install Dependencies # Install Node.js dependencies
-          command: npm ci # 'npm ci' ensures a clean and reproducible installation
-
-      - save_npm_cache # Save node_modules to cache for subsequent runs
-
+          name: Install Dependencies
+          command: npm ci
+      - save_npm_cache
       - run:
-          name: Run Linting # Execute ESLint for code quality checks
+          name: Run Linting
           command: npm run lint
-
       - run:
-          name: Run Tests with Coverage # Execute Jest tests and collect coverage
+          name: Run Tests with Coverage
           command: npm test
-
-      - persist_to_workspace: # Persist the entire project directory to a workspace
-          # This makes the code available for subsequent jobs in the workflow (e.g., build_docker_image)
+      - persist_to_workspace:
           root: .
           paths:
             - .
 
-  # Job for building and pushing the Docker image to Docker Hub
   build_docker_image:
-    executor: node-executor # Use the Node.js executor (Docker commands are available here)
+    executor: node-executor
     steps:
-      - attach_workspace: # Attach the workspace from the previous build_and_test job
+      - attach_workspace:
           at: .
-
-      - setup_remote_docker: # Set up a remote Docker environment for building images
-          # Enables Docker layer caching for faster image builds
+      - setup_remote_docker:
           docker_layer_caching: true
-
       - run:
-          name: Log in to Docker Hub # Authenticate with the Docker Hub
+          name: Log in to Docker Hub
           command: |
-            # Use environment variables for username and password for security
-            # These must be set in your CircleCI project settings
             echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
-          # IMPORTANT: Set DOCKER_HUB_USERNAME and DOCKER_HUB_PASSWORD as environment variables
-          # in your CircleCI project settings (Project Setting -> Environment Variables).
-
       - run:
-          name: Build Docker Image # Build the Docker image using the Dockerfile
+          name: Build Docker Image
           command: |
-            # Define image name and tags
-            # Replace 'your-dockerhub-username' with your actual Docker Hub username
-            # 'cicd-pipeline-demo' is derived from your package.json name
-            IMAGE_NAME="your-dockerhub-username/cicd-pipeline-demo"
-            # Tag with the CircleCI commit SHA for unique versions
-            # Also tag with 'latest' for easy access to the most recent build
-            docker build -t ${IMAGE_NAME}:${CIRCLE_SHA1} -t ${IMAGE_NAME}:latest .
-
+            IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
+            # Explicitly specify the Dockerfile path.
+            # This ensures that even if context changes, it finds the Dockerfile.
+            docker build -f Dockerfile -t ${IMAGE_NAME}:${CIRCLE_SHA1} -t ${IMAGE_NAME}:latest .
       - run:
-          name: Push Docker Image to Docker Hub # Push the built images to Docker Hub
+          name: Verify Docker Images # NEW DIAGNOSTIC STEP
+          command: docker images # List all the local Docker images to check for the newly built one
+      - run:
+          name: Push Docker Image to Docker Hub
           command: |
             IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
             docker push ${IMAGE_NAME}:${CIRCLE_SHA1}
             docker push ${IMAGE_NAME}:latest
 
-  # Job for deploying the application to a cloud platform
-  # This job will require significant customization based on your chosen cloud provider.
   deploy_to_cloud:
-    executor: node-executor # Use the Node.js executor
+    executor: node-executor
     steps:
-      - attach_workspace: # Attach the workspace containing the application code
+      - attach_workspace:
           at: .
-
       - run:
           name: Deploy Application to Cloud (Placeholder)
           command: |
-            # --- IMPORTANT: CUSTOMIZE THIS SECTION FOR YOUR CHOSEN CLOUD PROVIDER ---
-            #
-            # This is a generic example for deploying to a server via SSH (e.g., AWS EC2, DigitalOcean Droplet).
-            # You will need to replace placeholders and adapt commands for your specific setup.
-            #
-            # Pre-requisites for SSH deployment:
-            # 1. Add your SSH private key to CircleCI (Project Settings -> SSH Permissions).
-            # 2. Add your remote server's public key fingerprint to CircleCI (SSH Permissions).
-            # 3. Ensure Docker is installed and running on your remote server.
-            # 4. Replace 'user@your.server.ip' with your actual server details.
-
             echo "Starting deployment to cloud platform..."
-            REMOTE_HOST="your-cloud-server-ip-or-dns" # e.g., ec2-XX-XX-XX-XX.compute-1.amazonaws.com
-            REMOTE_USER="your-ssh-user" # e.g., 'ubuntu' for Ubuntu AMIs, 'ec2-user' for Amazon Linux
+            REMOTE_HOST="your-cloud-server-ip-or-dns"
+            REMOTE_USER="your-ssh-user"
 
-            # Log in to Docker Hub on the remote server (if your image is private)
             ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "
               echo '$DOCKER_HUB_PASSWORD' | docker login -u '$DOCKER_HUB_USERNAME' --password-stdin
             "
 
-            # Pull the latest Docker image and run it
-            # This example stops and removes any existing container with the same name before running a new one.
             ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "
-              docker pull your-dockerhub-username/cicd-pipeline-demo:latest
-              docker stop cicd-demo-app || true # Stop the container if it's running
-              docker rm cicd-demo-app || true   # Remove the container if it exists
-              # Run the new container, mapping host port 80 to container port 3000
+              docker pull mrlamar237/cicd-pipeline-demo:latest
+              docker stop cicd-demo-app || true
+              docker rm cicd-demo-app || true
               docker run -d -p 80:3000 --name cicd-demo-app \
-              -e PORT=3000 \ # Pass the port as an environment variable to the container
-              -e NODE_ENV=production \ # Set environment to production
-              -e APP_VERSION=${CIRCLE_SHA1} \ # Pass the commit SHA as app version
-              -e GIT_COMMIT=${CIRCLE_SHA1} \ # Pass the commit SHA as git commit
-              your-dockerhub-username/cicd-pipeline-demo:latest
+              -e PORT=3000 \
+              -e NODE_ENV=production \
+              -e APP_VERSION=${CIRCLE_SHA1} \
+              -e GIT_COMMIT=${CIRCLE_SHA1} \
+              mrlamar237/cicd-pipeline-demo:latest
             "
             echo "Deployment initiated. Verify application at http://${REMOTE_HOST}/health"
 
-            # --- END OF CUSTOMIZABLE DEPLOYMENT SECTION ---
-
-# Define the workflow, which orchestrates the jobs
 workflows:
   build_test_and_deploy_workflow:
     jobs:
-      - build_and_test # First, run the build and test job
-      - build_docker_image: # Then, build and push the Docker image
+      - build_and_test
+      - build_docker_image:
           requires:
-            - build_and_test # This job requires build_and_test to succeed
-          filters: # Only run this job on pushes to the main/master branch
+            - build_and_test
+          filters:
             branches:
               only:
-                - master # Adjust to 'master' if that's your primary branch
-      - deploy_to_cloud: # Finally, deploy the application
+                - master
+      - deploy_to_cloud:
           requires:
-            - build_docker_image # This job requires build_docker_image to succeed
-          filters: # Only run this job on pushes to the main/master branch
+            - build_docker_image
+          filters:
             branches:
               only:
-                - master # Adjust to 'master' if that's your primary branch
+                - master
