@@ -85,7 +85,7 @@ jobs:
             # These must be set in your CircleCI project settings
             echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
           # IMPORTANT: Set DOCKER_HUB_USERNAME and DOCKER_HUB_PASSWORD as environment variables
-          # in your CircleCI project settings (Project Settings -> Environment Variables).
+          # in your CircleCI project settings (Project Setting -> Environment Variables).
 
       - run:
           name: Build Docker Image # Build the Docker image using the Dockerfile
@@ -101,7 +101,7 @@ jobs:
       - run:
           name: Push Docker Image to Docker Hub # Push the built images to Docker Hub
           command: |
-            IMAGE_NAME="your-dockerhub-username/cicd-pipeline-demo"
+            IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
             docker push ${IMAGE_NAME}:${CIRCLE_SHA1}
             docker push ${IMAGE_NAME}:latest
 
