@@ -22,7 +22,7 @@ commands:
       - save_cache:
           paths:
             - node_modules
-          key: v1-dependencies-{{ checksum "package.lock.json" }}
+          key: v1-dependencies-{{ checksum "package-lock.json" }} # Corrected to package-lock.json
 
 jobs:
   build_and_test:
@@ -60,18 +60,56 @@ jobs:
           name: Build Docker Image
           command: |
             IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
-            # Explicitly specify the Dockerfile path.
-            # This ensures that even if context changes, it finds the Dockerfile.
             docker build -f Dockerfile -t ${IMAGE_NAME}:${CIRCLE_SHA1} -t ${IMAGE_NAME}:latest .
       - run:
-          name: Verify Docker Images # NEW DIAGNOSTIC STEP
-          command: docker images # List all the local Docker images to check for the newly built one
+          name: Verify Docker Images
+          command: docker images
       - run:
           name: Push Docker Image to Docker Hub
           command: |
             IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
             docker push ${IMAGE_NAME}:${CIRCLE_SHA1}
             docker push ${IMAGE_NAME}:latest
+
+  # NEW JOB: Verify Docker Container Runs Locally within the CircleCI Runner
+  verify_local_container_run:
+    executor: node-executor
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Log in to Docker Hub (for pulling image)
+          command: |
+            echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+      - run:
+          name: Pull Docker Image
+          command: |
+            IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
+            docker pull ${IMAGE_NAME}:latest
+      - run:
+          name: Run Docker Container Locally (within CircleCI runner)
+          command: |
+            IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
+            # Run the container in detached mode, mapping container port 3000 to host port 3000
+            docker run -d -p 3000:3000 --name cicd-demo-app-test ${IMAGE_NAME}:latest
+      - run:
+          name: Verify Application is Running Locally (within CircleCI runner)
+          command: |
+            echo "Waiting for container to start and respond..."
+            # Give the container a moment to fully start up and listen on the port
+            sleep 15 # Increased sleep time for robustness
+            # Use curl to check the health endpoint and the root path
+            # --retry 5: retry up to 5 times
+            # --retry-delay 5: wait 5 seconds between retries
+            curl --retry 5 --retry-delay 5 http://localhost:3000/health
+            curl --retry 5 --retry-delay 5 http://localhost:3000/
+      - run:
+          name: Stop and Remove Test Container # Clean up the running container
+          command: |
+            docker stop cicd-demo-app-test || true
+            docker rm cicd-demo-app-test || true
 
   deploy_to_cloud:
     executor: node-executor
@@ -113,9 +151,16 @@ workflows:
             branches:
               only:
                 - master
+      - verify_local_container_run: # NEW: Added this job to the workflow
+          requires:
+            - build_docker_image # Runs after Docker image is built and pushed
+          filters:
+            branches:
+              only:
+                - master
       - deploy_to_cloud:
           requires:
-            - build_docker_image
+            - verify_local_container_run # Now depends on the local container verification
           filters:
             branches:
               only:
