@@ -172,4 +172,4 @@ workflows:
           filters: # Only run this job on pushes to the main/master branch
             branches:
               only:
-                - main # Adjust to 'master' if that's your primary branch
+                - master # Adjust to 'master' if that's your primary branch
