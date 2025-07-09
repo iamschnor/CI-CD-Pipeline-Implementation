@@ -1,46 +1,46 @@
-# Stage 1: Build the application with dev dependencies and run tests/linting
-# Using node:18-alpine as specified in package.json engines for a lightweight image
+# Stage 1: Build the application with dev dependencies
 FROM node:18-alpine AS builder
 
-# Set the working directory inside the container
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json first
-# This allows Docker to cache the npm install step if only source code changes
+# Copy package.json and package-lock.json first to leverage Docker cache
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies for testing and linting)
-# 'npm ci' is used for clean, reproducible installs in CI environments
+# Install development dependencies, as Jest (a dev dependency) is used for testing
 RUN npm ci
 
-# Copy the rest of the application source code
+# Copy the rest of the application code
 COPY . .
 
-# Run quality checks (tests and linting) during the build process
-# If any of these commands fail, the Docker build will fail, acting as a quality gate
+# Run tests, linting, and security audit
 RUN npm test
 RUN npm run lint
+# RUN npm run security:audit # Uncomment if you want security audit to fail the build
 
-# Stage 2: Create the final, lightweight production image
-# Using the same base image for consistency and small size
+# Stage 2: Create the production-ready slim image
 FROM node:18-alpine AS production
 
-# Set the working directory for the production application
+# Set working directory
 WORKDIR /app
 
-# Copy only the production dependencies from the 'builder' stage
-# This ensures that devDependencies (like Jest, ESLint) are not included in the final image
+# Copy package.json and package-lock.json to the production image
+# This is crucial for 'npm start' to find the project's scripts
+COPY package*.json ./
+
+# Copy only production dependencies from the builder stage
+# This keeps the final image small by excluding dev dependencies
 COPY --from=builder /app/node_modules ./node_modules
 
-# Copy only the essential application files for production
-# This includes server.js and the public directory for the frontend
+# Copy only the necessary application files for production
 COPY server.js ./
 COPY public ./public
+# If you have other directories like 'routes', 'controllers', 'models', copy them too
+# COPY src ./src
+# COPY config ./config
 
-# Expose the port on which the application will listen
-# Your server.js listens on process.env.PORT or defaults to 3000
+# Expose the port your application runs on (typically 3000 for Node.js Express apps)
 EXPOSE 3000
 
-# Define the command to run the application when the container starts
-# This uses the 'start' script defined in your package.json
+# Command to run the application
 CMD ["npm", "start"]
